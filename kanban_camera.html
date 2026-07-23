@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>月寒東小学校 入学式・卒業式</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #111; color: #eee;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    overscroll-behavior: none;
+  }
+  #app { display: flex; flex-direction: column; height: 100%; }
+
+  header {
+    padding: 6px 14px;
+    font-size: 13px;
+    background: #000;
+    border-bottom: 1px solid #333;
+    line-height: 1.4;
+  }
+  header b { color: #ffd166; }
+
+  #stageWrap {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    background: #000;
+    overflow: hidden;
+  }
+  #stage {
+    position: absolute;
+    overflow: hidden;
+    background: #000;
+    touch-action: none;
+    /* 外側のレターボックス部分と区別できるよう、枠に境界線を付ける */
+    border: 1px solid #444;
+  }
+  video {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    background: #000;
+  }
+  #overlayImg {
+    position: absolute;
+    left: 50%; top: 50%;
+    max-width: none;
+    transform-origin: center center;
+    pointer-events: none;
+    user-select: none;
+  }
+  #resultCanvas, #resultWrap {
+    display: none;
+  }
+  #resultWrap.show {
+    display: flex;
+  }
+  #resultWrap {
+    position: absolute; inset: 0;
+    background: #000;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  #resultCanvas.show { display: block; }
+  #resultCanvas {
+    max-width: 100%;
+    max-height: 78%;
+    border: 1px solid #444;
+  }
+
+  #controls {
+    background: #000;
+    border-top: 1px solid #333;
+    padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .row label { width: 74px; font-size: 12px; color: #aaa; flex-shrink: 0; }
+  input[type=range] { flex: 1; }
+
+  .buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+  button, .filebtn {
+    flex: 1;
+    min-width: 80px;
+    padding: 9px 8px;
+    font-size: 13px;
+    border: none;
+    border-radius: 10px;
+    background: #2a2a2a;
+    color: #eee;
+    cursor: pointer;
+    text-align: center;
+  }
+  button:active, .filebtn:active { background: #3a3a3a; }
+  #shutterBtn { background: #d9364f; font-weight: bold; flex: 2; }
+  #saveBtn { background: #2b8a3e; font-weight: bold; }
+  input[type=file] { display: none; }
+
+  #hint {
+    font-size: 11px;
+    color: #888;
+    text-align: center;
+  }
+  #errorBox {
+    display: none;
+    margin: 10px 12px;
+    padding: 10px 12px;
+    background: #4a1c1c;
+    border: 1px solid #a33;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  #startOverlay {
+    position: absolute; inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    z-index: 5;
+  }
+  #startOverlay.hidden { display: none; }
+  #startCamBtn {
+    padding: 18px 28px;
+    font-size: 17px;
+    font-weight: bold;
+    border: none;
+    border-radius: 14px;
+    background: #d9364f;
+    color: #fff;
+  }
+
+  #presetRow {
+    display: flex;
+    gap: 4px;
+  }
+  .presetBtn {
+    flex: 1;
+    min-width: 0;
+    padding: 9px 2px;
+    background: #1c1c1c;
+    border: 2px solid #333;
+    border-radius: 10px;
+    color: #eee;
+    font-size: 12px;
+    font-weight: bold;
+    text-align: center;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .presetBtn.active {
+    border-color: #ffd166;
+    background: #2a2410;
+    color: #ffd166;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <b>月寒東小学校　入学式・卒業式</b>
+  </header>
+
+  <div id="errorBox"></div>
+
+  <div id="stageWrap">
+    <div id="stage">
+      <video id="video" playsinline muted autoplay></video>
+      <img id="overlayImg" src="kanban_sotsugyo1.png" alt="看板オーバーレイ">
+      <div id="startOverlay">
+        <button id="startCamBtn">▶ カメラを起動</button>
+      </div>
+      <div id="resultWrap">
+        <canvas id="resultCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div id="controls">
+    <div id="presetRow">
+      <button class="presetBtn active" data-src="kanban_sotsugyo1.png">卒業式１</button>
+      <button class="presetBtn" data-src="kanban_sotsugyo2.png">卒業式２</button>
+      <button class="presetBtn" data-src="kanban_nyugaku1.png">入学式１</button>
+      <button class="presetBtn" data-src="kanban_nyugaku2.png">入学式２</button>
+    </div>
+
+    <div class="row">
+      <label>透明度</label>
+      <input type="range" id="opacity" min="20" max="100" value="100">
+    </div>
+    <div class="row">
+      <label>大きさ</label>
+      <input type="range" id="scale" min="10" max="100" value="45">
+    </div>
+    <div class="row">
+      <label>上下位置</label>
+      <input type="range" id="posY" min="-100" max="100" value="0">
+    </div>
+
+    <div class="buttons">
+      <button id="switchCamBtn">カメラ切替</button>
+      <button id="rotateBtn">🔄 回転</button>
+      <button id="resetBtn">位置リセット</button>
+    </div>
+    <div class="buttons">
+      <button id="shutterBtn">📷 撮影する</button>
+    </div>
+    <div class="buttons" id="afterButtons" style="display:none;">
+      <button id="retakeBtn">撮り直す</button>
+      <button id="saveBtn">画像を保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const video = document.getElementById('video');
+  const overlayImg = document.getElementById('overlayImg');
+  const stageWrap = document.getElementById('stageWrap');
+  const stage = document.getElementById('stage');
+  const opacityInput = document.getElementById('opacity');
+  const scaleInput = document.getElementById('scale');
+  const posYInput = document.getElementById('posY');
+  const switchCamBtn = document.getElementById('switchCamBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const rotateBtn = document.getElementById('rotateBtn');
+  const presetBtns = document.querySelectorAll('.presetBtn');
+  const shutterBtn = document.getElementById('shutterBtn');
+  const errorBox = document.getElementById('errorBox');
+  const startOverlay = document.getElementById('startOverlay');
+  const startCamBtn = document.getElementById('startCamBtn');
+  const resultWrap = document.getElementById('resultWrap');
+  const resultCanvas = document.getElementById('resultCanvas');
+  const afterButtons = document.getElementById('afterButtons');
+  const retakeBtn = document.getElementById('retakeBtn');
+  const saveBtn = document.getElementById('saveBtn');
+
+  let facingMode = 'environment'; // 背面カメラ優先
+  let currentStream = null;
+  let overlayNaturalW = 1080, overlayNaturalH = 1920;
+  let dragging = false, dragStartX = 0, dragStartY = 0, offsetX = 0, offsetY = 0, startOffX = 0, startOffY = 0;
+  let rotation = 0; // 0, 90, 180, 270度
+
+  function showError(msg) {
+    errorBox.style.display = 'block';
+    errorBox.innerHTML = msg;
+  }
+
+  // iPhone標準の写真比率（4:3 = 縦向きで幅3:高さ4）に固定してレターボックス表示する
+  const STAGE_RATIO = 3 / 4; // width / height
+  function sizeStage() {
+    const maxW = stageWrap.clientWidth;
+    const maxH = stageWrap.clientHeight;
+    let w = maxW, h = w / STAGE_RATIO;
+    if (h > maxH) { h = maxH; w = h * STAGE_RATIO; }
+    w = Math.round(w); h = Math.round(h);
+    stage.style.width = w + 'px';
+    stage.style.height = h + 'px';
+    // position:absoluteにしたため、中央寄せもJSで直接計算する
+    stage.style.left = Math.round((maxW - w) / 2) + 'px';
+    stage.style.top = Math.round((maxH - h) / 2) + 'px';
+  }
+
+  function applyOverlayTransform() {
+    const scale = Number(scaleInput.value) / 100;
+    const posY = Number(posYInput.value); // -100〜100 (% of stage height)
+    const stageW = stage.clientWidth;
+    const stageH = stage.clientHeight;
+    const dy = (posY / 100) * (stageH / 2) + offsetY;
+    // 「大きさ」は元画像のピクセル数ではなく、撮影枠の幅に対する割合で決める。
+    // 元画像の解像度が高いとスライダーの左側だけしか使えなくなってしまうため。
+    overlayImg.style.width = stageW * scale + 'px';
+    overlayImg.style.transform =
+      'translate(-50%, -50%) translate(' + offsetX + 'px,' + dy + 'px) rotate(' + rotation + 'deg)';
+    overlayImg.style.opacity = Number(opacityInput.value) / 100;
+  }
+
+  overlayImg.addEventListener('load', () => {
+    overlayNaturalW = overlayImg.naturalWidth;
+    overlayNaturalH = overlayImg.naturalHeight;
+    applyOverlayTransform();
+  });
+
+  [opacityInput, scaleInput, posYInput].forEach(el =>
+    el.addEventListener('input', applyOverlayTransform)
+  );
+
+  resetBtn.addEventListener('click', () => {
+    offsetX = 0; offsetY = 0;
+    scaleInput.value = 45; posYInput.value = 0; opacityInput.value = 100;
+    rotation = 0;
+    applyOverlayTransform();
+  });
+
+  rotateBtn.addEventListener('click', () => {
+    rotation = (rotation + 90) % 360;
+    applyOverlayTransform();
+  });
+
+  // 看板プリセット（卒業式／入学式）の切り替え
+  presetBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      presetBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      offsetX = 0; offsetY = 0;
+      scaleInput.value = 45; posYInput.value = 0; opacityInput.value = 100;
+      rotation = 0;
+      overlayImg.src = btn.dataset.src;
+    });
+  });
+
+  // ドラッグで看板の位置を微調整（マウス・タッチ両対応）
+  function pointFromEvent(e) {
+    if (e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    return { x: e.clientX, y: e.clientY };
+  }
+  function dragStart(e) {
+    dragging = true;
+    const p = pointFromEvent(e);
+    dragStartX = p.x; dragStartY = p.y;
+    startOffX = offsetX; startOffY = offsetY;
+  }
+  function dragMove(e) {
+    if (!dragging) return;
+    const p = pointFromEvent(e);
+    offsetX = startOffX + (p.x - dragStartX);
+    offsetY = startOffY + (p.y - dragStartY);
+    applyOverlayTransform();
+    e.preventDefault();
+  }
+  function dragEnd() { dragging = false; }
+  stage.addEventListener('mousedown', dragStart);
+  window.addEventListener('mousemove', dragMove);
+  window.addEventListener('mouseup', dragEnd);
+  stage.addEventListener('touchstart', dragStart, { passive: true });
+  stage.addEventListener('touchmove', dragMove, { passive: false });
+  stage.addEventListener('touchend', dragEnd);
+
+  async function startCamera() {
+    if (currentStream) {
+      currentStream.getTracks().forEach(t => t.stop());
+    }
+    try {
+      currentStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: facingMode },
+          // プレビューと撮影結果のズレを防ぐため、表示枠と同じ3:4の比率で
+          // カメラ自体に映像を要求する（対応していない端末は近い比率で応答する）
+          aspectRatio: { ideal: STAGE_RATIO }
+        },
+        audio: false
+      });
+      video.srcObject = currentStream;
+      errorBox.style.display = 'none';
+      startOverlay.classList.add('hidden');
+    } catch (err) {
+      showError(
+        'カメラを起動できませんでした。<br>' +
+        '・PCのブラウザで直接このファイルを開いている場合はWebカメラへのアクセスを許可してください。<br>' +
+        '・スマホの場合は https:// で始まるURL（QRコード経由など）で開く必要があります。file:// や http:// では動作しないことがあります。<br>' +
+        '・iPhoneでカメラ許可のポップアップが出ない場合は、設定アプリ→Safari→カメラ の項目を確認してください。<br>' +
+        '詳細: ' + (err && err.message ? err.message : err)
+      );
+      startOverlay.classList.remove('hidden');
+    }
+  }
+
+  startCamBtn.addEventListener('click', startCamera);
+
+  switchCamBtn.addEventListener('click', () => {
+    facingMode = facingMode === 'environment' ? 'user' : 'environment';
+    startCamera();
+  });
+
+  // 撮影：ビデオ(cover表示)と看板オーバーレイを同じ見た目のまま1枚のcanvasに合成
+  shutterBtn.addEventListener('click', () => {
+    const stageRect = stage.getBoundingClientRect();
+    const dpr0 = window.devicePixelRatio || 1;
+    const outW = Math.round(stageRect.width * dpr0);
+    // 高さは実測値ではなく、STAGE_RATIO（3:4）から計算する。
+    // レイアウトの誤差に関わらず、保存される写真が必ず3:4になるようにするため。
+    const outH = Math.round(outW / STAGE_RATIO);
+    resultCanvas.width = outW;
+    resultCanvas.height = outH;
+    const ctx = resultCanvas.getContext('2d');
+
+    // --- video を object-fit:cover と同じ計算で描画 ---
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (vw && vh) {
+      const stageRatio = STAGE_RATIO;
+      const videoRatio = vw / vh;
+      let sx, sy, sw, sh;
+      if (videoRatio > stageRatio) {
+        sh = vh; sw = vh * stageRatio;
+        sx = (vw - sw) / 2; sy = 0;
+      } else {
+        sw = vw; sh = vw / stageRatio;
+        sx = 0; sy = (vh - sh) / 2;
+      }
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, outW, outH);
+    } else {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, outW, outH);
+    }
+
+    // --- 看板オーバーレイを画面と同じ位置・大きさ・透明度で描画 ---
+    const dpr = dpr0;
+    const scale = Number(scaleInput.value) / 100;
+    const posY = Number(posYInput.value);
+    const stageH = outH / dpr; // 保存用canvasと矛盾しないよう、実測値でなくoutHから逆算する
+    const dy = (posY / 100) * (stageH / 2) + offsetY;
+
+    // プレビュー（stageW * scale）と同じ考え方で、撮影枠の幅(outW)に対する割合として大きさを決める
+    const drawW = outW * scale;
+    const drawH = drawW * (overlayNaturalH / overlayNaturalW);
+    const cx = outW / 2 + offsetX * dpr;
+    const cy = outH / 2 + dy * dpr;
+
+    ctx.globalAlpha = Number(opacityInput.value) / 100;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rotation * Math.PI / 180);
+    ctx.drawImage(overlayImg, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+
+    resultWrap.classList.add('show');
+    resultCanvas.classList.add('show');
+    afterButtons.style.display = 'flex';
+    shutterBtn.style.display = 'none';
+  });
+
+  retakeBtn.addEventListener('click', () => {
+    resultWrap.classList.remove('show');
+    resultCanvas.classList.remove('show');
+    afterButtons.style.display = 'none';
+    shutterBtn.style.display = 'block';
+  });
+
+  // dataURL（base64）を同期的にBlobへ変換する。
+  // canvas.toBlob()は非同期のため、そのコールバック内でa.click()すると
+  // iOS Safariでは「ユーザー操作の直後」とみなされずダウンロードがブロックされることがある。
+  // toDataURL()は同期処理なので、タップ操作の流れを切らずに保存できる。
+  function dataURLToBlob(dataUrl) {
+    const parts = dataUrl.split(',');
+    const mimeMatch = parts[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+    const binary = atob(parts[1]);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  }
+
+  function backToCamera() {
+    resultWrap.classList.remove('show');
+    resultCanvas.classList.remove('show');
+    afterButtons.style.display = 'none';
+    shutterBtn.style.display = 'block';
+  }
+
+  saveBtn.addEventListener('click', () => {
+    const filename = 'kanban_photo_' + Date.now() + '.png';
+    const dataUrl = resultCanvas.toDataURL('image/png');
+
+    if (navigator.canShare) {
+      try {
+        const file = new File([dataURLToBlob(dataUrl)], filename, { type: 'image/png' });
+        if (navigator.canShare({ files: [file] })) {
+          // iPhoneではこの「共有」から「画像を保存」を選ぶと写真アプリに保存される
+          navigator.share({ files: [file] }).catch(() => {});
+          backToCamera();
+          return;
+        }
+      } catch (e) { /* 共有APIが使えない場合は下のダウンロード処理にフォールバック */ }
+    }
+
+    // PC・Androidなど: 通常のダウンロードとして保存
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    backToCamera();
+  });
+
+  window.addEventListener('resize', () => { sizeStage(); applyOverlayTransform(); });
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => { sizeStage(); applyOverlayTransform(); }, 300);
+  });
+  // iPhoneはアドレスバーの表示/非表示で表示領域が遅れて確定することがあるため、念のため少し後にも再計算する
+  setTimeout(() => { sizeStage(); applyOverlayTransform(); }, 300);
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showError('このブラウザはカメラAPIに対応していません。iOS Safari または Android Chrome の最新版でお試しください。');
+    startOverlay.classList.add('hidden');
+  }
+  // カメラの起動は「▶ カメラを起動」ボタンのタップ（ユーザー操作）をきっかけに行う。
+  // iOS Safariは自動起動だとNotAllowedError（ユーザー操作が必要）でブロックするため。
+  sizeStage();
+  applyOverlayTransform();
+})();
+</script>
+</body>
+</html>
