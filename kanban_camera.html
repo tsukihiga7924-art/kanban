@@ -130,6 +130,21 @@
     z-index: 5;
   }
   #startOverlay.hidden { display: none; }
+  #gestureHint {
+    position: absolute;
+    left: 50%; bottom: 14px;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    font-size: 12px;
+    padding: 8px 14px;
+    border-radius: 20px;
+    white-space: nowrap;
+    z-index: 6;
+    transition: opacity 0.6s;
+    pointer-events: none;
+  }
+  #gestureHint.hide { opacity: 0; }
   #startCamBtn {
     padding: 18px 28px;
     font-size: 17px;
@@ -180,6 +195,7 @@
       <div id="startOverlay">
         <button id="startCamBtn">▶ カメラを起動</button>
       </div>
+      <div id="gestureHint">指1本で移動・2本でつまんで拡大縮小</div>
       <div id="resultWrap">
         <canvas id="resultCanvas"></canvas>
       </div>
@@ -197,14 +213,6 @@
     <div class="row">
       <label>透明度</label>
       <input type="range" id="opacity" min="20" max="100" value="100">
-    </div>
-    <div class="row">
-      <label>大きさ</label>
-      <input type="range" id="scale" min="10" max="100" value="45">
-    </div>
-    <div class="row">
-      <label>上下位置</label>
-      <input type="range" id="posY" min="-100" max="100" value="0">
     </div>
 
     <div class="buttons">
@@ -229,8 +237,7 @@
   const stageWrap = document.getElementById('stageWrap');
   const stage = document.getElementById('stage');
   const opacityInput = document.getElementById('opacity');
-  const scaleInput = document.getElementById('scale');
-  const posYInput = document.getElementById('posY');
+  const gestureHint = document.getElementById('gestureHint');
   const switchCamBtn = document.getElementById('switchCamBtn');
   const resetBtn = document.getElementById('resetBtn');
   const rotateBtn = document.getElementById('rotateBtn');
@@ -250,6 +257,9 @@
   let overlayNaturalW = 1080, overlayNaturalH = 1920;
   let dragging = false, dragStartX = 0, dragStartY = 0, offsetX = 0, offsetY = 0, startOffX = 0, startOffY = 0;
   let rotation = 0; // 0, 90, 180, 270度
+  const SCALE_DEFAULT = 0.45, SCALE_MIN = 0.08, SCALE_MAX = 1.5;
+  let scale = SCALE_DEFAULT; // 撮影枠の幅に対する割合（ピンチ操作で変更）
+  let pinching = false, pinchStartDist = 0, pinchStartScale = SCALE_DEFAULT;
 
   function showError(msg) {
     errorBox.style.display = 'block';
@@ -272,16 +282,12 @@
   }
 
   function applyOverlayTransform() {
-    const scale = Number(scaleInput.value) / 100;
-    const posY = Number(posYInput.value); // -100〜100 (% of stage height)
     const stageW = stage.clientWidth;
-    const stageH = stage.clientHeight;
-    const dy = (posY / 100) * (stageH / 2) + offsetY;
     // 「大きさ」は元画像のピクセル数ではなく、撮影枠の幅に対する割合で決める。
     // 元画像の解像度が高いとスライダーの左側だけしか使えなくなってしまうため。
     overlayImg.style.width = stageW * scale + 'px';
     overlayImg.style.transform =
-      'translate(-50%, -50%) translate(' + offsetX + 'px,' + dy + 'px) rotate(' + rotation + 'deg)';
+      'translate(-50%, -50%) translate(' + offsetX + 'px,' + offsetY + 'px) rotate(' + rotation + 'deg)';
     overlayImg.style.opacity = Number(opacityInput.value) / 100;
   }
 
@@ -291,13 +297,11 @@
     applyOverlayTransform();
   });
 
-  [opacityInput, scaleInput, posYInput].forEach(el =>
-    el.addEventListener('input', applyOverlayTransform)
-  );
+  opacityInput.addEventListener('input', applyOverlayTransform);
 
   resetBtn.addEventListener('click', () => {
     offsetX = 0; offsetY = 0;
-    scaleInput.value = 45; posYInput.value = 0; opacityInput.value = 100;
+    scale = SCALE_DEFAULT; opacityInput.value = 100;
     rotation = 0;
     applyOverlayTransform();
   });
@@ -313,16 +317,19 @@
       presetBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       offsetX = 0; offsetY = 0;
-      scaleInput.value = 45; posYInput.value = 0; opacityInput.value = 100;
+      scale = SCALE_DEFAULT; opacityInput.value = 100;
       rotation = 0;
       overlayImg.src = btn.dataset.src;
     });
   });
 
-  // ドラッグで看板の位置を微調整（マウス・タッチ両対応）
+  // 指1本で移動、指2本のピンチで拡大縮小（マウスは1本指ドラッグ相当）
   function pointFromEvent(e) {
     if (e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
     return { x: e.clientX, y: e.clientY };
+  }
+  function touchDist(t0, t1) {
+    return Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
   }
   function dragStart(e) {
     dragging = true;
@@ -342,9 +349,40 @@
   stage.addEventListener('mousedown', dragStart);
   window.addEventListener('mousemove', dragMove);
   window.addEventListener('mouseup', dragEnd);
-  stage.addEventListener('touchstart', dragStart, { passive: true });
-  stage.addEventListener('touchmove', dragMove, { passive: false });
-  stage.addEventListener('touchend', dragEnd);
+
+  stage.addEventListener('touchstart', (e) => {
+    hideGestureHint();
+    if (e.touches.length === 2) {
+      dragging = false;
+      pinching = true;
+      pinchStartDist = touchDist(e.touches[0], e.touches[1]);
+      pinchStartScale = scale;
+    } else if (e.touches.length === 1) {
+      pinching = false;
+      dragStart(e);
+    }
+  }, { passive: true });
+
+  stage.addEventListener('touchmove', (e) => {
+    if (pinching && e.touches.length === 2) {
+      const dist = touchDist(e.touches[0], e.touches[1]);
+      const ratio = dist / (pinchStartDist || 1);
+      scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, pinchStartScale * ratio));
+      applyOverlayTransform();
+      e.preventDefault();
+    } else if (dragging && e.touches.length === 1) {
+      dragMove(e);
+    }
+  }, { passive: false });
+
+  stage.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) pinching = false;
+    if (e.touches.length === 0) dragEnd();
+  });
+
+  function hideGestureHint() {
+    if (gestureHint) gestureHint.classList.add('hide');
+  }
 
   async function startCamera() {
     if (currentStream) {
@@ -363,6 +401,7 @@
       video.srcObject = currentStream;
       errorBox.style.display = 'none';
       startOverlay.classList.add('hidden');
+      setTimeout(hideGestureHint, 3500);
     } catch (err) {
       showError(
         'カメラを起動できませんでした。<br>' +
@@ -415,16 +454,12 @@
 
     // --- 看板オーバーレイを画面と同じ位置・大きさ・透明度で描画 ---
     const dpr = dpr0;
-    const scale = Number(scaleInput.value) / 100;
-    const posY = Number(posYInput.value);
-    const stageH = outH / dpr; // 保存用canvasと矛盾しないよう、実測値でなくoutHから逆算する
-    const dy = (posY / 100) * (stageH / 2) + offsetY;
 
     // プレビュー（stageW * scale）と同じ考え方で、撮影枠の幅(outW)に対する割合として大きさを決める
     const drawW = outW * scale;
     const drawH = drawW * (overlayNaturalH / overlayNaturalW);
     const cx = outW / 2 + offsetX * dpr;
-    const cy = outH / 2 + dy * dpr;
+    const cy = outH / 2 + offsetY * dpr;
 
     ctx.globalAlpha = Number(opacityInput.value) / 100;
     ctx.save();
